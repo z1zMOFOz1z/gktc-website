@@ -417,7 +417,9 @@ def rate_ok(ip):
 
 
 def clean_number(raw):
-    return re.sub(r"\D", "", raw or "")
+    # Keep hex chip IDs (e.g. E4307163 from a GKTC scan) as well as printed
+    # decimal numbers; strip spacing, dashes and any other punctuation.
+    return re.sub(r"[^0-9A-Fa-f]", "", raw or "")
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -700,6 +702,171 @@ def api_sync():
     return jsonify(ok=True, supervisors=applied,
                    notify_enabled=notify_enabled(),
                    enrollment_enabled=enrollment_enabled())
+
+
+def _test_step(steps, name, ok, detail=""):
+    steps.append({"name": name, "ok": bool(ok), "detail": str(detail or "")})
+
+
+def _email_cfg_with_override(email_in):
+    """email_config() with GKTC form values layered on top (blank = default)."""
+    cfg = email_config()
+    if isinstance(email_in, dict) and email_in:
+        prov = str(email_in.get("provider") or "").strip().lower()
+        if prov in EMAIL_PROVIDERS:
+            cfg["provider"] = prov
+        for key in ("smtp_host", "smtp_port", "smtp_user", "smtp_pass",
+                    "imap_host", "imap_user", "imap_pass", "api_key"):
+            if email_in.get(key):
+                cfg[key] = str(email_in[key])
+        if email_in.get("from"):
+            cfg["mail_from"] = str(email_in["from"])
+    if not cfg["mail_from"]:
+        cfg["mail_from"] = cfg["smtp_user"]
+    if not cfg["imap_user"]:
+        cfg["imap_user"] = cfg["smtp_user"]
+    if not cfg["imap_pass"]:
+        cfg["imap_pass"] = cfg["smtp_pass"]
+    if cfg["provider"] == "gmail":
+        cfg["smtp_host"] = cfg["smtp_host"] or "smtp.gmail.com"
+        cfg["imap_host"] = cfg["imap_host"] or "imap.gmail.com"
+    elif cfg["provider"] == "outlook":
+        cfg["smtp_host"] = cfg["smtp_host"] or "smtp.office365.com"
+        cfg["imap_host"] = cfg["imap_host"] or "outlook.office365.com"
+    try:
+        cfg["smtp_port"] = int(cfg["smtp_port"] or 587)
+    except (TypeError, ValueError):
+        cfg["smtp_port"] = 587
+    return cfg
+
+
+def _run_email_test(to_addr, cfg):
+    """Try to send one test email, collecting a step log. Never raises."""
+    steps = []
+    prov = cfg["provider"]
+    if prov == "none":
+        _test_step(steps, "Config", False, "email provider is 'none' - nothing would be sent")
+        return False, steps
+    missing = []
+    if prov in ("brevo", "sendgrid"):
+        if not cfg["api_key"]:
+            missing.append("API key")
+        if not cfg["mail_from"]:
+            missing.append("'Send emails from' address")
+    else:
+        if not cfg["smtp_host"]:
+            missing.append("SMTP host")
+        if not cfg["smtp_user"]:
+            missing.append("SMTP username")
+        if not cfg["smtp_pass"]:
+            missing.append("SMTP password")
+    if missing:
+        _test_step(steps, "Config", False, "missing: " + ", ".join(missing))
+        return False, steps
+    _test_step(steps, "Config", True, "provider " + prov)
+    if "@" not in (to_addr or ""):
+        _test_step(steps, "Address", False, "enter a valid 'To' address")
+        return False, steps
+    _test_step(steps, "Address", True, to_addr)
+    subject = "GateKeeperTC email test"
+    body = ("This is a test from your GateKeeperTC website (%s).\n\n"
+            "If you got this email, supervisor notifications will work.\n" % now_iso())
+    if prov in ("gmail", "outlook", "smtp"):
+        msg = EmailMessage()
+        msg["From"] = cfg["mail_from"] or cfg["smtp_user"]
+        msg["To"] = to_addr
+        msg["Subject"] = subject
+        msg.set_content(body)
+        try:
+            server = smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=10)
+        except Exception as exc:
+            _test_step(steps, "SMTP connect", False,
+                       "%s:%s: %s" % (cfg["smtp_host"], cfg["smtp_port"], exc))
+            return False, steps
+        _test_step(steps, "SMTP connect", True,
+                   "%s:%s" % (cfg["smtp_host"], cfg["smtp_port"]))
+        try:
+            try:
+                server.starttls()
+                _test_step(steps, "STARTTLS", True, "encrypted")
+            except smtplib.SMTPNotSupportedError:
+                _test_step(steps, "STARTTLS", True,
+                           "server does not advertise STARTTLS, continuing plain")
+            server.login(cfg["smtp_user"], cfg["smtp_pass"])
+            _test_step(steps, "SMTP login", True, cfg["smtp_user"])
+            server.send_message(msg)
+            _test_step(steps, "Send", True, "test email accepted")
+            try:
+                server.quit()
+            except Exception:
+                pass
+        except smtplib.SMTPAuthenticationError as exc:
+            _test_step(steps, "SMTP login", False,
+                       "rejected: %s (use an app password, not the account password)" % exc)
+            return False, steps
+        except Exception as exc:
+            _test_step(steps, "Send", False, str(exc))
+            return False, steps
+        if cfg["imap_host"] and cfg["imap_user"] and cfg["imap_pass"]:
+            try:
+                box = imaplib.IMAP4_SSL(cfg["imap_host"], 993)
+                box.login(cfg["imap_user"], cfg["imap_pass"])
+                box.logout()
+                _test_step(steps, "IMAP login (STOP replies, optional)", True, cfg["imap_host"])
+            except Exception as exc:
+                _test_step(steps, "IMAP login (STOP replies, optional)", False, str(exc))
+        else:
+            _test_step(steps, "IMAP login (STOP replies, optional)", False,
+                       "not configured - STOP-by-reply off")
+        return True, steps
+    url = ("https://api.brevo.com/v3/smtp/email" if prov == "brevo"
+           else "https://api.sendgrid.com/v3/mail/send")
+    _test_step(steps, "API endpoint", True, url)
+    try:
+        if prov == "brevo":
+            _post_json(url,
+                       {"sender": {"email": cfg["mail_from"]}, "to": [{"email": to_addr}],
+                        "subject": subject, "textContent": body},
+                       {"api-key": cfg["api_key"], "Content-Type": "application/json"})
+        else:
+            _post_json(url,
+                       {"personalizations": [{"to": [{"email": to_addr}]}],
+                        "from": {"email": cfg["mail_from"]}, "subject": subject,
+                        "content": [{"type": "text/plain", "value": body}]},
+                       {"Authorization": "Bearer " + cfg["api_key"],
+                        "Content-Type": "application/json"})
+        _test_step(steps, "Send", True, "test email accepted")
+    except Exception as exc:
+        code = getattr(exc, "code", "")
+        detail = ""
+        if code:
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:200]
+            except Exception:
+                detail = ""
+        _test_step(steps, "Send", False,
+                   ("HTTP %s %s" % (code, detail)).strip() or str(exc))
+        return False, steps
+    _test_step(steps, "IMAP login (STOP replies, optional)", False,
+               "not available with API providers")
+    return True, steps
+
+
+@app.route("/api/admin/test-email", methods=["POST"])
+def api_test_email():
+    data = request.get_json(force=True, silent=True) or {}
+    if not admin_key_ok(data):
+        return jsonify(ok=False, error="bad key"), 403
+    to_addr = str(data.get("to") or "").strip()
+    try:
+        cfg = _email_cfg_with_override(data.get("email"))
+        ok, steps = _run_email_test(to_addr, cfg)
+    except Exception as exc:
+        return jsonify(ok=False, summary="Email test crashed: %s" % exc,
+                       steps=[], provider="")
+    summary = ("Email test passed - supervisor notifications will work."
+               if ok else "Email test failed - see steps.")
+    return jsonify(ok=ok, summary=summary, steps=steps, provider=cfg["provider"])
 
 
 if __name__ == "__main__":
