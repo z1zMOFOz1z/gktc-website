@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Choose password - GateKeeperTC{% endblock %}
+{% block content %}
+<h1>Choose a new password</h1>
+<p class="lede">Supervisor: <strong>{{ name }}</strong></p>
+{% if error %}
+<div class="alert" role="alert">{{ error }}</div>
+{% endif %}
+<form method="post">
+  <label for="password">New password (at least 6 characters)</label>
+  <input id="password" name="password" type="password" required autocomplete="new-password">
+  <label for="password2">Repeat new password</label>
+  <input id="password2" name="password2" type="password" required autocomplete="new-password">
+  <button type="submit">Change password</button>
+</form>
+{% endblock %}

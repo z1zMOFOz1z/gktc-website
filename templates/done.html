@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Card added - GateKeeperTC{% endblock %}
+{% block content %}
+<h1>Card added</h1>
+<div class="success" role="status">
+  <strong>{{ holder }}</strong> was added to the system under supervisor <strong>{{ supervisor }}</strong>.
+</div>
+<p>The device will pick this card up automatically. No further action is needed.</p>
+<p><a href="/">Enroll another card</a></p>
+{% endblock %}

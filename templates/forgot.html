@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Reset password - GateKeeperTC{% endblock %}
+{% block content %}
+<h1>Supervisor password reset</h1>
+{% if sent %}
+<div class="success" role="status">If that email belongs to a supervisor, a reset link is on its way. The link expires in one hour.</div>
+<p><a href="/">Back to enrollment</a></p>
+{% else %}
+<p class="lede">Enter your supervisor email and we will send you a link to choose a new password.</p>
+<form method="post" action="/forgot">
+  <label for="email">Supervisor email</label>
+  <input id="email" name="email" type="email" maxlength="120" required placeholder="you@example.com">
+  <button type="submit">Send reset link</button>
+</form>
+<p><a href="/">Back to enrollment</a></p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+# Render.com free blueprint (alternative to Vercel). In Render: New -> Blueprint,
+# point it at your repo. Free instances sleep when idle; the first request
+# after a nap takes ~30 seconds, then it is fast. Set the same env vars as
+# Vercel (see install.txt Part C) in the Render dashboard.
+services:
+  - type: web
+    name: gktc-website
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 60
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: DEVICE_KEY
+        generateValue: true
+      - key: SITE_URL
+        sync: false
+      - key: EMAIL_PROVIDER
+        value: gmail
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false

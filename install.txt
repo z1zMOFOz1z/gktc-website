@@ -1,0 +1,392 @@
+================================================================
+GateKeeperTC Card Enrollment Website - INSTALL GUIDE
+================================================================
+This guide takes you from zero to a working public website where
+people can enroll new cards, step by step. Everything here uses
+FREE services. Nothing costs money.
+
+WHAT YOU ARE BUILDING
+---------------------
+  1. A public website with a card enrollment form:
+       - Name of card holder
+       - Card number (with a picture-example for HID Proximity cards)
+       - Supervisor name (drop-down list, synced from GKTC)
+       - Supervisor password
+     When the supervisor name + password are correct, the card is
+     stored and the supervisor gets an email about it.
+  2. The GKTC desktop program manages the supervisors (names,
+     emails, passwords) and sends them to the website.
+  3. The GateKeeperTC device connects to the website over the
+     internet and downloads newly enrolled cards by itself.
+
+THE FREE SERVICES (all you need)
+--------------------------------
+  1. VERCEL (vercel.com) ......... runs the website. Free "Hobby"
+     plan. This is the web host. Your site gets an address like
+     https://gktc-cards.vercel.app
+  2. NEON (neon.tech) ............ the database (Postgres) that
+     holds supervisors and cards. Free plan, about 500 MB, which
+     is far more than this system will ever use.
+  3. GMAIL (your Google account) .. sends the emails (supervisor
+     notices + password resets) and receives STOP replies.
+     Free, about 500 emails/day.
+  4. GITHUB (github.com) ......... holds a copy of the website
+     files so Vercel can deploy them. Free.
+
+HOW THE PIECES TALK TO EACH OTHER
+---------------------------------
+  Visitor --(name/number/supervisor+password)--> Website (Vercel)
+  Website --(stores)--> Database (Neon)
+  Website --(emails)--> Gmail --> Supervisors
+  Supervisors --(reply STOP)--> Gmail --> Website reads it, opts out
+  GKTC program --(supervisors + settings)--> Website (sync button)
+  Device --(asks for new cards)--> Website (every 30 minutes)
+  Device --(cards)--> GKTC (normal download on connect, as before)
+
+WHAT IS IN THE website FOLDER
+-----------------------------
+  app.py ............ the whole website (form, pages, device API)
+  api/index.py ...... lets Vercel run the site (do not edit)
+  requirements.txt .. Python parts Vercel installs (do not edit)
+  vercel.json ....... Vercel settings (do not edit)
+  templates/ ........ the web pages
+  static/style.css .. how the pages look
+  install.txt ....... this file
+
+================================================================
+PART A - CREATE THE FREE DATABASE (Neon, ~5 minutes)
+================================================================
+  1. Go to https://neon.tech and sign up (you can use your Google
+     account).
+  2. Create a new Project. Name it "gktc". Keep the defaults and
+     create it.
+  3. Neon shows you a CONNECTION STRING. It looks like:
+       postgresql://user:password@ep-xxxx.neon.tech/gktc?sslmode=require
+  4. COPY that whole string somewhere safe (Notepad). You need it
+     in Part C. The website creates its own tables automatically -
+     you do NOT have to run any SQL.
+
+================================================================
+PART B - GMAIL APP PASSWORD (~5 minutes)
+================================================================
+The website sends email through your Gmail. Google needs a special
+"app password" for this (your normal Gmail password will NOT work).
+
+  1. Go to https://myaccount.google.com and sign in.
+  2. Turn on 2-Step Verification if it is off:
+     Security -> 2-Step Verification -> follow the steps.
+  3. Then go to Security -> App passwords (search "app passwords"
+     in the account search box if you don't see it).
+  4. Create one: name it "GKTC Website", copy the 16-letter code
+     it shows you (no spaces).
+  5. Keep your Gmail address + that code for Part C.
+
+================================================================
+PART C - PUT THE WEBSITE ONLINE (Vercel, ~15 minutes)
+================================================================
+Step C1 - Make two secret keys on your PC.
+  1. Open PowerShell and run these two lines, one at a time:
+       -join ((1..24) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
+     Each run prints a long random code.
+  2. Save them in Notepad as:
+       ADMIN_KEY  = (first code)   <- GKTC uses this to sync
+       DEVICE_KEY = (second code)  <- device uses this to fetch cards
+
+Step C2 - Upload the website files to GitHub.
+  1. Go to https://github.com and sign up / sign in.
+  2. Click "+" (top right) -> New repository. Name it "gktc-website".
+     Leave it Public, click Create repository.
+  3. Click "uploading an existing file" (on the empty repo page).
+  4. On your PC open the C:\repo3\website folder. DRAG ALL OF THESE
+     into the GitHub page (keep the folders templates/, static/,
+     api/ as folders - GitHub keeps the structure):
+       app.py, requirements.txt, vercel.json,
+       api/index.py, templates/*.html, static/style.css
+     (Do NOT upload install.txt - harmless if you do, but skip it.)
+  5. Click Commit changes.
+
+Step C3 - Deploy on Vercel.
+  1. Go to https://vercel.com and sign up (use "Continue with
+     GitHub" and approve access).
+  2. Click Add New -> Project -> Import the "gktc-website" repo.
+  3. Before pressing Deploy, open "Environment Variables" and add
+     ALL of these (name = value):
+       DATABASE_URL ... your Neon connection string from Part A
+       ADMIN_KEY ...... the first code from step C1
+       DEVICE_KEY ..... the second code from step C1
+       SITE_URL ....... leave EMPTY for now (you set it in C5)
+       SMTP_HOST ...... smtp.gmail.com
+       SMTP_PORT ...... 587
+       SMTP_USER ...... your Gmail address
+       SMTP_PASS ...... the 16-letter app password from Part B
+       MAIL_FROM ...... your Gmail address (same as SMTP_USER)
+       IMAP_HOST ...... imap.gmail.com
+       IMAP_USER ...... your Gmail address
+       IMAP_PASS ...... the 16-letter app password (same as SMTP_PASS)
+  4. Press Deploy. Wait 1-2 minutes. Vercel gives you a site
+     address like https://gktc-website-abc123.vercel.app
+  5. Go back to Project -> Settings -> Environment Variables, set
+     SITE_URL to that exact address (no trailing /), then go to
+     Deployments -> click the 3 dots on the newest one -> Redeploy.
+     (SITE_URL is used for password-reset and unsubscribe links.)
+  6. Open your site address. You should see the green
+     "Enroll a card" form. If the supervisor list is empty, that
+     is normal - you sync supervisors from GKTC in Part D.
+
+================================================================
+PART C2 - ALTERNATIVE HOST: RENDER (instead of Vercel)
+================================================================
+If you would rather not use Vercel, Render.com is another free
+host. The website folder already contains render.yaml for it.
+
+  1. Sign up at https://render.com (use your GitHub account).
+  2. New -> Blueprint, point it at your gktc-website repo.
+  3. Fill in the same environment variables as Part C step C3
+     (Render asks for them; ADMIN_KEY/DEVICE_KEY are generated
+     for you unless you paste your own).
+  4. Deploy. Your address looks like
+     https://gktc-website.onrender.com - then set SITE_URL to it
+     (Render dashboard -> Environment -> add SITE_URL -> redeploy).
+  NOTE: Render's free plan sleeps after ~15 minutes idle. The
+  first visit or device poll after a nap takes ~30 seconds, then
+  it is fast. Vercel does not sleep, which is why it is the
+  default pick. In GKTC (Website -> Connection tab) set
+  "Web service" to Render so the status shows where you run.
+
+You can also SELF-HOST on your own server/PC (Python + Flask +
+Postgres, run with gunicorn or `python app.py` behind HTTPS) or
+use any OTHER Python host. The website only needs its env vars
+and an HTTPS address the device can reach.
+
+================================================================
+PART D - GKTC PROGRAM SETUP (~10 minutes)
+================================================================
+  1. Rebuild GKTC in Visual Studio (or run the new GKTC.exe).
+     Everything uses the shared folder
+     C:\Users\Public\Documents\GKTC as usual.
+  2. Click the new WEBSITE button (top right, next to Edit Card).
+  3. CONNECTION tab - fill in:
+       Website address .... your site address from Part C/C2
+       Admin API key ...... your ADMIN_KEY
+       Device key ......... your DEVICE_KEY
+       Web service ........ Vercel / Render / Self-hosted / Other
+     "Website enrollment enabled" starts UNCHECKED - the website
+     ships OFF and stays off until you prove it works (step 4).
+     If you change the address or admin key later, the box
+     unchecks itself and you must Test again.
+     Leave "Email supervisors when a new card is added" CHECKED
+     (uncheck + Sync to turn those emails off everywhere).
+  4. Press TEST. You should see "Connected. Supervisors: 0...".
+     ONLY NOW can you CHECK "Website enrollment enabled" - GKTC
+     refuses to check it before a passing test. Check it.
+  5. Press SHOW QR CODE to display a QR code of your site address.
+     Save it as PNG, print it or stick it on the wall - any phone
+     camera that scans it opens the enrollment site, no typing.
+  6. SUPERVISORS tab - add supervisors: name + email + password
+     (min 6 chars), press Add for each one. Passwords are
+     ENCRYPTED on your PC (Windows DPAPI) and ENCRYPTED on the
+     website (bcrypt hash) - nobody can read them from either
+     place.
+  7. EMAIL tab - pick your email service (Gmail, Outlook, Brevo,
+     SendGrid, Custom SMTP, or None) and fill in its fields.
+     Each choice shows you exactly what it needs. See EMAIL
+     SERVICES below for the free accounts.
+  8. Press SAVE, then press SYNC TO WEBSITE. You should see
+     "Synced N supervisor(s)". The website drop-down now lists
+     them. Whenever you change anything later, press Sync again
+     (GKTC is the master list for supervisors AND settings).
+  9. Connect your device (pick it in the device list), then press
+     SEND WEBSITE CONFIG TO DEVICE. This stores the website
+     address + device key on the device and asks it to fetch
+     cards right away. Watch the system log for
+     "Device confirmed..." style lines.
+
+================================================================
+PART E - DEVICE FIRMWARE (~10 minutes)
+================================================================
+  1. PACKAGE CHECK (do once). In the Arduino IDE open Sketch ->
+     Include Library -> Manage Libraries and install:
+       - "ArduinoJson" by Benoit Blanchon, version 7 or newer
+         (7.4.3 tested). THIS ONE IS NEW - the website code
+         will NOT compile without it.
+       - "Freenove_WS2812_Lib_for_ESP32" - OR keep the
+         Freenove_WS2812_Lib_for_ESP32.h/.cpp files next to the
+         .ino like you already do. (No change - you have this.)
+     Board support: ESP32 core by Espressif, version 3.x
+     (3.3.12 tested - that is what you have installed).
+     Everything else (WiFi, BLE, LittleFS, ArduinoOTA, USB
+     host) ships with the core - nothing else to install.
+  2. Open C:\repo3\GKTC_Firmware.ino, copy-paste it into your
+     programmer exactly like you always do, and flash the device.
+     Board settings (Tools menu - same as the comment at the top
+     of the file):
+       Board ............ ESP32S3 Dev Module
+       Flash Size ....... 8MB (64Mb) - REQUIRED, sketch is 1.5MB
+       Partition Scheme . "8M with spiffs (3MB APP/1.5MB SPIFFS)"
+       USB Mode ......... Hardware CDC and JTAG
+       USB CDC On Boot .. Disabled
+       Upload Mode ...... UART0 / Hardware CDC
+     No settings to change INSIDE the file - the website
+     address and key come from GKTC (Part D step 9).
+  3. The device now:
+       - fetches new website cards 1 minute after boot,
+       - then every 30 minutes while Wi-Fi is up,
+       - immediately when GKTC sends PULL_WEBSITE,
+       - skips while a checkout session is busy (retries later).
+     New cards arrive NAMED (holder name + number). The first
+     time the physical card is scanned, the device binds the full
+     scanned number to that name automatically - same as the
+     "Add from print" flow you already know.
+
+================================================================
+FIRMWARE NOTES - SETTINGS THAT CHANGED (read before flashing)
+================================================================
+  Verified here: the .ino COMPILES CLEAN on ESP32 core 3.3.12,
+  board "ESP32S3 Dev Module", 8MB flash, "8M with spiffs":
+  sketch 1,516,945 bytes (45% of APP), RAM 137,548 bytes (41%).
+  Zero errors.
+
+  Radio (no more standby, no picker anywhere):
+  - Wi-Fi and BLE run TOGETHER while idle.
+  - A PC connecting on one radio shuts the other down.
+  - The other radio comes back only when NOTHING is connected.
+  - The "-standby" name suffix and the SET_RADIO command are gone.
+
+  Website polling (new):
+  - WEBSITE_SET:<url>|<key> stores the site on the device.
+  - First fetch 60s after boot, then every 30 min on Wi-Fi,
+    plus any time GKTC sends PULL_WEBSITE.
+  - WEBSITE_TLS_INSECURE = 1: the device does NOT check the
+    website's certificate. Deliberate - free hosts rotate
+    certificates and a check would break fetching. Your
+    ADMIN_KEY/DEVICE_KEY still guard every request.
+  - If the website says enrollment is off, the device idles and
+    tries again at the next poll (nothing pulled, nothing lost).
+
+  Session pause (fixed):
+  - PAUSE_SESSION now freezes the checkout timer completely:
+    scans, checkouts and pings can no longer move it.
+  - The LCD shows "Timer stopped" until the program sends
+    RESUME_SESSION (fresh 30s), END_SESSION, or a new SESSION_OPEN.
+
+  Pin tools (GPIO):
+  - SET_TOOL_PINS and every boot now auto-create the tool card
+    (named "New/No Name") so it reaches the PC on next download.
+  - A pin remove/insert now goes through the same check as a
+    scanned tool: blocked or unnamed tools pop the programming
+    menu instead of toggling, until programmed.
+  - Unchecking a pin (SET_TOOL_PINS) now wipes that pin tool:
+    cleared from any holder, queues and session, card deleted,
+    PC notified. GKTC also prunes local pin cards the device no
+    longer reports (display follows via the shared card file).
+
+================================================================
+PART F - TEST EVERYTHING END TO END (~5 minutes)
+================================================================
+  0. If the site says "Enrollment disabled", the switch is
+     still off: GKTC -> Website -> Test, CHECK the enable box,
+     Sync. Then continue.
+  1. Open your website. Pick supervisor "Alice" (or whoever),
+     enter holder name, card number, supervisor password.
+     Press Add card -> you should see "Card added".
+  2. Check that supervisor's email: a "New card holder added"
+     message should arrive within a minute.
+  3. In GKTC, press SEND WEBSITE CONFIG TO DEVICE again (or wait
+     up to 30 minutes). The system log / device serial shows
+     WEBSITE:added <number> <holder>.
+  4. In GKTC the new card appears after the next connect
+     download (device -> PC, as usual).
+  5. Test password reset: on the website click "Supervisor forgot
+     password?", enter the supervisor email, open the emailed
+     link, set a new password, enroll again with it.
+  6. Test STOP: reply to a notification email with subject STOP.
+     Within ~15 minutes (next device poll or enrollment) that
+     supervisor stops getting emails. (There is also a one-click
+     unsubscribe link in every email.)
+
+================================================================
+HOW THE CARD NUMBER WORKS (HID PROXIMITY)
+================================================================
+On the BACK of a HID Proximity card you see groups of numbers,
+for example:
+
+     51234   603  987654321098
+
+Enter the FIRST (short) group - the numbers BEFORE the long set.
+In the example: 51234.
+
+The device matches enrolled numbers against real scans the same
+way "Add from print" does: when the physical card is first
+scanned, the device recognizes the printed digits inside the scan
+and permanently binds the full scanned number to the holder name.
+From then on that card scans under its real number with its name.
+
+================================================================
+EMAIL SERVICES (pick one in GKTC -> Website -> Email tab)
+================================================================
+You are NOT locked to Gmail. Pick whichever free service you
+like; GKTC syncs the choice to the website. Details:
+
+  GMAIL (free 500/day) ..... username = your Gmail address,
+     password = Google app password (Part B). STOP-by-reply
+     works (IMAP defaults are built in).
+  OUTLOOK (free, has daily limits) .. username = your address,
+     password = Microsoft app password (Microsoft account ->
+     Security -> Advanced security options -> App passwords).
+     STOP-by-reply works (IMAP defaults built in).
+  BREVO (free 300/day) ..... sign up at brevo.com, create an
+     SMTP key (SMTP & API -> SMTP keys), paste it as API key,
+     set "Send emails from" to an address you verify in Brevo.
+     No STOP-by-reply (API service) - the unsubscribe link in
+     every email still works.
+  SENDGRID (free 100/day) .. sign up at sendgrid.com, create an
+     API key with "Mail Send" rights, paste it as API key, set
+     "Send emails from" to a verified sender. No STOP-by-reply -
+     the unsubscribe link still works.
+  CUSTOM SMTP .............. any provider with SMTP: fill host,
+     port, username, password. Fill the IMAP fields too if you
+     want STOP-by-reply.
+  NONE ..................... website sends nothing. Enrollment
+     and device fetch still work; nobody gets notified.
+
+NOTE: Brevo and SendGrid free accounts require you to verify
+your sender address/domain on their site before mail flows -
+their dashboards walk you through it (a few minutes).
+
+================================================================
+TROUBLESHOOTING
+================================================================
+- Website shows an error page ......... Vercel -> your project ->
+  Deployments -> click the newest -> Runtime Logs shows the
+  Python error. 9 times out of 10 it is a missing/typoed
+  environment variable (check every name in Part C twice).
+- TEST says "Could not reach" ......... wrong address (must start
+  https:// and have no trailing /) or no internet.
+- TEST says "refused the key" ......... ADMIN_KEY in GKTC must
+  EXACTLY match ADMIN_KEY in Vercel env vars (then Redeploy).
+- Sync says 0 supervisors ............. you pressed Sync with an
+  empty list, which EMPTIES the website list. Re-add and sync.
+- No notification emails .............. check the Email tab
+  (right provider? credentials filled? press Sync after changes),
+  and the GKTC "Email supervisors" checkbox. Also check Spam.
+- Website says "Enrollment disabled" .. the master switch is off:
+  GKTC -> Website -> Connection -> check "Website enrollment
+  enabled" -> Sync. The device feed comes back too.
+- STOP reply did not work ............. the reply must come from
+  the supervisor's email address on file, and processing happens
+  on the next device poll or enrollment (up to ~15 min). The
+  unsubscribe link in the email works instantly instead.
+- Device never fetches ................ device needs Wi-Fi up
+  (website needs internet), firmware with ArduinoJson flashed,
+  and the GKTC "Send Website Config to Device" step done.
+  Serial log lines starting WEBSITE: say exactly what happened.
+- ArduinoJson missing ................. flash fails with
+  "ArduinoJson.h: No such file" -> install the library (Part E).
+- Vercel free limits .................. Hobby = plenty for this
+  (a few hundred enrollments/day max would still be fine).
+  Neon free = 500 MB (millions of cards). Gmail = 500 mails/day.
+
+ALL FREE, FOREVER (within the limits above). Enjoy.
+--- end of install.txt ---
+
+

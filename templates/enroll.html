@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Enroll a card</h1>
+<p class="lede">Fill in the card holder below. Your supervisor is notified and the device picks the card up on its own.</p>
+
+{% if error %}
+<div class="alert" role="alert">{{ error }}</div>
+{% endif %}
+{% if not supervisors %}
+<div class="alert" role="alert">No supervisors are set up yet. Ask your GateKeeperTC administrator to sync supervisors from the GKTC program first.</div>
+{% endif %}
+
+<form method="post" action="/" autocomplete="off">
+  <label for="holder">Name of card holder</label>
+  <input id="holder" name="holder" type="text" maxlength="60" required
+         placeholder="e.g. Jane Smith" value="{{ holder }}">
+
+  <label for="number">Card number</label>
+  <input id="number" name="number" type="text" inputmode="numeric" maxlength="32" required
+         placeholder="e.g. 51234" value="{{ number }}">
+
+  <div class="hint-box">
+    <div class="hint-title">Where is the number? (HID Proximity card)</div>
+    <p>Turn the card over. On the back you will see groups of numbers, for example:</p>
+    <div class="card-back" aria-hidden="true"><span class="pick">51234</span> &nbsp;603&nbsp; 987654321098</div>
+    <p class="no-gap"><strong>Enter the first group of numbers</strong> &mdash; the short number
+    <span class="pick-inline">before</span> the long set of numbers. In the example above you would enter <strong>51234</strong>.</p>
+  </div>
+
+  <label for="supervisor">Supervisor name</label>
+  <select id="supervisor" name="supervisor" required>
+    <option value="">-- pick your supervisor --</option>
+    {% for s in supervisors %}
+    <option value="{{ s.name }}" {% if s.name == supervisor %}selected{% endif %}>{{ s.name }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="password">Supervisor password</label>
+  <input id="password" name="password" type="password" required autocomplete="current-password">
+  <p class="small"><a href="/forgot">Supervisor forgot password?</a></p>
+
+  <button type="submit">Add card</button>
+</form>
+{% endblock %}
